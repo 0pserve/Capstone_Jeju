@@ -1,70 +1,131 @@
-# Getting Started with Create React App
+# 제주도 맞춤형 여행 추천 시스템 (Jeju Travel Recommendation)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+실시간 날씨와 사용자 설문을 기반으로 제주도 여행 장소를 추천하고 최적화된 경로를 제공하는 풀스택 웹 애플리케이션입니다.
 
-## Available Scripts
+## 🚀 주요 기능
 
-In the project directory, you can run:
+- **설문 기반 취향 분석**: 여행 스타일, 선호 장소, 활동량을 고려한 개인화 추천
+- **실시간 날씨 반영**: 기상청 API를 통한 실시간 날씨 데이터로 실내/실외 추천 조정
+- **경로 최적화**: TSP(Traveling Salesman Problem) 알고리즘으로 이동 경로 최소화
+- **인터랙티브 지도**: Kakao Maps를 통한 장소 표시 및 경로 시각화
+- **백엔드 API**: FastAPI 기반 추천 알고리즘 서버
 
-### `npm start`
+## 🏗️ 아키텍처
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```
+프론트엔드 (React) ↔ 백엔드 (FastAPI) ↔ 데이터 (CSV)
+       │                         │
+   Kakao Maps              기상청 API
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## 📁 프로젝트 구조
 
-### `npm test`
+```
+frontend/                 # React 프론트엔드
+├── public/
+├── src/
+│   ├── components/      # WeatherBar, PlaceCard
+│   ├── pages/          # SurveyPage, MapPage
+│   └── App.js
+├── package.json
+└── .env.example
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+backend/                  # FastAPI 백엔드
+├── main.py              # FastAPI 앱
+├── services.py          # 추천 알고리즘
+├── repositories.py      # 데이터 로더
+├── models.py            # Pydantic 모델
+├── data/                # 제주도 장소 CSV
+└── requirements.txt
+```
 
-### `npm run build`
+## 🛠️ 설치 및 실행
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 1. 백엔드 실행
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+백엔드 서버가 `http://localhost:8000`에서 실행됩니다.
 
-### `npm run eject`
+### 2. 프론트엔드 실행
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+cd frontend
+npm install
+npm start
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+프론트엔드 개발 서버가 `http://localhost:3000`에서 실행됩니다.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 3. 환경 변수 설정
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+프론트엔드 `.env` 파일 생성 (`.env.example` 참조):
 
-## Learn More
+```env
+REACT_APP_KAKAO_MAP_KEY=your_kakao_map_key_here
+REACT_APP_WEATHER_KEY=your_weather_api_key_here
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 🔑 API 키 발급
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### Kakao Maps JavaScript API
+1. [Kakao Developers](https://developers.kakao.com/) 가입
+2. 애플리케이션 생성 → JavaScript 키 발급
+3. `.env` 파일의 `REACT_APP_KAKAO_MAP_KEY`에 입력
 
-### Code Splitting
+### 기상청 날씨 API
+1. [기상청 날씨开放API](https://data.go.kr/) 가입
+2. 일반 인증키 발급
+3. `.env` 파일의 `REACT_APP_WEATHER_KEY`에 입력
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## 📊 데이터
 
-### Analyzing the Bundle Size
+- `backend/data/jeju_all_tagged_places_3.csv`: 1359개 제주도 장소 데이터
+  - 각 장소는 제목, 태그 벡터(자연/실내/활동성), 좌표 포함
+  - 태그 벡터는 [0.0~1.0] 범위로 정규화
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## 🧠 알고리즘
 
-### Making a Progressive Web App
+### 1. 사용자 벡터 변환
+설문 응답(`style`, `place`, `activity`)을 [자연 선호, 실내 선호, 활동성 선호] 3차원 벡터로 변환
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### 2. 코사인 유사도 기반 추천
+사용자 벡터와 장소 벡터 간의 코사인 유사도 계산
 
-### Advanced Configuration
+### 3. 날씨 가중치 적용
+비 오는 날(`is_rainy=True`) 경우 실외 장소 패널티 적용
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+### 4. TSP 경로 최적화
+추천된 장소들 간의 하버사인 거리를 기반으로 최단 경로 계산
 
-### Deployment
+## 🌐 API 엔드포인트
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/recommend` | 설문 기반 장소 추천 |
+| GET | `/weather` | 제주도 실시간 날씨 |
+| GET | `/places` | 모든 장소 목록 |
 
-### `npm run build` fails to minify
+## 🧪 테스트
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```bash
+# 백엔드 테스트
+cd backend
+pytest
+
+# 프론트엔드 테스트
+cd frontend
+npm test
+```
+
+## 📄 라이선스
+
+MIT License
+
+## 👥 기여
+
+버그 리포트 및 기능 제안은 Issue로 등록해주세요.
