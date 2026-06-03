@@ -10,9 +10,7 @@ from fastapi.responses import FileResponse
 
 from models import UserSurvey, RecommendResponse, PlaceInfo
 from repositories import InMemoryPlaceRepository
-#rom services import RecommendationService, get_weather, get_user_vector_from_survey
-from services import get_weather
-from services_greedy import RecommendationService, get_user_vector_from_survey
+from services import RecommendationService, get_weather, get_user_vector_from_survey
 
 app = FastAPI(
     title="제주도 여행 추천 API",

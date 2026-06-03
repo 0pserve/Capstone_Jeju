@@ -10,7 +10,7 @@ import numpy as np
 from scipy.spatial.distance import cosine
 
 from repositories import PlaceRepository, PlaceData
-
+print("기존 TSP 알고리즘 실행됨")
 
 def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """코사인 유사도 계산 (Scipy의 cosine 거리 사용)"""
@@ -248,6 +248,7 @@ class RecommendationService:
         Returns:
             추천 결과 딕셔너리
         """
+        
         # 모든 장소 데이터 조회
         places = self.repository.get_all_places()
         places_coords = self.repository.get_place_coordinates()
