@@ -1,60 +1,37 @@
-"""
-Pydantic 모델 정의 - 요청(Request) 및 응답(Response) 데이터 스키마
-"""
-
+from datetime import date
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
-from typing import List, Optional
 
+Interest = Literal["nature", "food", "cafe", "culture", "shopping", "beach"]
 
 class UserSurvey(BaseModel):
-    """설문 기반 추천 요청 모델"""
-    style: str = Field(..., description="여행 스타일: nature 또는 city")
-    place: str = Field(..., description="선호 장소: indoor 또는 outdoor")
-    activity: str = Field(..., description="활동량: active 또는 relax")
-    is_rainy: bool = Field(
-        default=False,
-        description="비 오는 날 여부"
-    )
-    top_n: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="추천할 장소 수"
-    )
-
-
-class RecommendRequest(BaseModel):
-    """여행 추천 요청 모델"""
-    user_vector: List[float] = Field(
-        ...,
-        min_items=3,
-        max_items=3,
-        description="사용자 취향 벡터 [자연 선호, 실내 선호, 활동성 선호]"
-    )
-    is_rainy: bool = Field(
-        default=False,
-        description="비 오는 날 여부"
-    )
-    top_n: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="추천할 장소 수"
-    )
-
+    style: Literal["nature", "city"]
+    place: Literal["indoor", "outdoor"]
+    activity: Literal["active", "relax"]
+    interests: List[Interest] = Field(default_factory=list)
+    start_lat: float = Field(..., ge=32.8, le=34.1)
+    start_lng: float = Field(..., ge=125.8, le=127.2)
+    travel_date: date
+    days: int = Field(1, ge=1, le=5)
+    start_time: str = Field("09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end_time: str = Field("19:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    weather_tolerance: Literal["any", "indoor"] = "any"
+    top_n: int = Field(5, ge=3, le=10)
 
 class PlaceInfo(BaseModel):
-    """장소 정보 모델"""
-    name: str
-    vector: List[float]
-    coordinates: List[float]
-    score: float
+    name: str; vector: List[float]; coordinates: List[float]; score: float
+    category: str = ""; address: str = ""; overview: str = ""
+    place_type: str = "attraction"; estimated_duration_minutes: int = 90
+    arrival_time: Optional[str] = None; departure_time: Optional[str] = None
+    travel_minutes_from_previous: Optional[int] = None
+    map_search_url: str = ""; booking_search_url: str = ""
 
+class TravelPlan(BaseModel):
+    id: Literal["preference", "weather", "nearby"]
+    title: str; subtitle: str; reason: str; total_distance: float; total_minutes: int
+    places: List[PlaceInfo]
 
 class RecommendResponse(BaseModel):
-    """여행 추천 응답 모델"""
-    recommended_places: List[PlaceInfo]
-    optimized_route: List[str]
-    total_distance: float
-    is_rainy: bool
-    message: Optional[str] = None
+    plans: List[TravelPlan]
+    weather: dict
+    message: str
