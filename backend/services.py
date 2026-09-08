@@ -1,281 +1,71 @@
-"""
-서비스 로직 구현 - 추천 알고리즘 및 날씨 API 연동
-"""
+import math, os
+from typing import Dict, Iterable, List, Optional, Tuple
+from urllib.parse import quote_plus
+from backend.repositories import PlaceData, PlaceRepository
 
-import math
-from typing import List, Tuple, Dict
-from itertools import permutations
+Coordinate = Tuple[float, float]
+KEYWORDS = {"nature": ("자연", "공원", "숲", "오름", "관광"), "food": ("음식", "한식", "양식", "식당"), "cafe": ("카페", "커피", "찻집", "제과"), "culture": ("문화", "박물관", "미술", "역사"), "shopping": ("쇼핑", "시장", "면세"), "beach": ("해변", "해수욕", "항구")}
 
-import numpy as np
-from scipy.spatial.distance import cosine
+def cosine_similarity(left, right):
+    denominator = math.sqrt(sum(x*x for x in left))*math.sqrt(sum(x*x for x in right))
+    return sum(a*b for a,b in zip(left,right))/denominator if denominator else 0.0
 
-from repositories import PlaceRepository, PlaceData
+def get_user_vector_from_survey(survey):
+    scores = {"nature": .8 if survey["style"] == "nature" else .2, "indoor": 1 if survey["place"] == "indoor" else 0, "activity": .9 if survey["activity"] == "active" else .2}
+    return [scores["nature"], scores["indoor"], scores["activity"]]
 
+def calculate_distance(a: Coordinate, b: Coordinate):
+    lat1, lon1, lat2, lon2 = map(math.radians, (*a,*b)); x = math.sin((lat2-lat1)/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin((lon2-lon1)/2)**2
+    return 6371*2*math.atan2(math.sqrt(x),math.sqrt(1-x))
 
-def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """코사인 유사도 계산 (Scipy의 cosine 거리 사용)"""
-    cos_dist = cosine(vec1, vec2)
-    return 1 - cos_dist
+def bonus(place, interests):
+    searchable=f"{place.category} {place.overview}".lower()
+    return min(.18*sum(any(word in searchable for word in KEYWORDS[item]) for item in interests), .36)
 
+def recommend_places(vector, places, rainy=False, interests=()):
+    scored=[]
+    for name, place in places.items():
+        score=cosine_similarity(vector,place.vector)+bonus(place,interests)
+        if rainy: score*=1.25 if place.tag in {"indoor","mixed"} else .35
+        scored.append((name,score))
+    return sorted(scored,key=lambda item:item[1],reverse=True)
 
-def get_user_vector_from_survey(survey_responses: dict):
-    """
-    프론트엔드 설문 데이터를 받아 [자연, 실내, 활동성] 벡터로 변환합니다.
-    각 항목은 0.0 ~ 1.0 사이의 값으로 정규화됩니다.
-    """
-    # 초기 점수 설정
-    scores = {"nature": 0.5, "indoor": 0.5, "activity": 0.5}
-    
-    # 1. 여행 스타일 (자연 vs 도시)
-    if survey_responses.get("style") == "nature":
-        scores["nature"] += 0.3
-    elif survey_responses.get("style") == "city":
-        scores["nature"] -= 0.3
+def optimize_route(coordinates, names, start=None):
+    remaining=set(names); route=[]; current=start or coordinates[names[0]]
+    while remaining:
+        name=min(remaining,key=lambda n:calculate_distance(current,coordinates[n])); route.append(name); remaining.remove(name); current=coordinates[name]
+    points=([start] if start else [])+[coordinates[n] for n in route]
+    return route, sum(calculate_distance(points[i],points[i+1]) for i in range(len(points)-1))
 
-    # 2. 선호 장소 (실내 vs 실외)
-    if survey_responses.get("place") == "indoor":
-        scores["indoor"] = 1.0  # 실내 확정
-        scores["activity"] -= 0.2
-    elif survey_responses.get("place") == "outdoor":
-        scores["indoor"] = 0.0  # 실외 확정
-        scores["activity"] += 0.2
+def place_type(place):
+    text=f"{place.category} {place.overview}".lower()
+    if any(x in text for x in KEYWORDS["cafe"]): return "cafe"
+    if any(x in text for x in KEYWORDS["food"]): return "restaurant"
+    if any(x in text for x in KEYWORDS["shopping"]): return "shopping"
+    return "attraction"
 
-    # 3. 활동량 (정적 vs 동적)
-    if survey_responses.get("activity") == "active":
-        scores["activity"] += 0.4
-    elif survey_responses.get("activity") == "relax":
-        scores["activity"] -= 0.4
+def duration(place): return 60 if place_type(place) in {"cafe","restaurant","shopping"} else 120 if place.tag == "outdoor" else 90
+def clock(minutes): return f"{minutes//60:02d}:{minutes%60:02d}"
 
-    # 점수 범위 제한 (0.0 ~ 1.0)
-    user_vector = [
-        max(0.0, min(1.0, scores["nature"])),
-        max(0.0, min(1.0, scores["indoor"])),
-        max(0.0, min(1.0, scores["activity"]))
-    ]
-    
-    return user_vector
-
-
-def calculate_distance(coord1: Tuple[float, float], coord2: Tuple[float, float]) -> float:
-    """두 좌표 간의 하버사인 거리 계산 (km) - 지구 곡률 반영"""
-    lat1, lon1 = coord1
-    lat2, lon2 = coord2
-    
-    # 도(degree)를 라디안(radian)으로 변환
-    lat1_rad = math.radians(lat1)
-    lon1_rad = math.radians(lon1)
-    lat2_rad = math.radians(lat2)
-    lon2_rad = math.radians(lon2)
-    
-    # 위도 및 경도 차이
-    dlat = lat2_rad - lat1_rad
-    dlon = lon2_rad - lon1_rad
-    
-    # 하버사인 공식
-    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    # 지구 평균 반지름 (km)
-    R = 6371.0
-    distance = R * c
-    return distance
-
-
-def recommend_places(
-    user_vector: List[float],
-    places: Dict[str, PlaceData],
-    is_rainy: bool = False
-) -> List[Tuple[str, float]]:
-    """
-    사용자 취향과 상황(비 여부)을 고려한 장소 추천
-    
-    Args:
-        user_vector: 사용자 취향 벡터 [자연 선호, 실내 선호, 활동성 선호]
-        places: 장소 이름과 PlaceData 객체를 매핑한 딕셔너리
-        is_rainy: 비 오는 날 여부
-    
-    Returns:
-        정렬된 (장소 이름, 최종 점수) 리스트
-    """
-    results = []
-    
-    for place_name, place_data in places.items():
-        place_vector = place_data.vector
-        
-        # 기본 코사인 유사도 계산
-        base_score = cosine_similarity(user_vector, place_vector)
-        
-        # 상황 가중치 적용
-        final_score = base_score
-        
-        if is_rainy:
-            indoor_flag = place_vector[1]  # 실내여부 (0 or 1)
-            if indoor_flag == 0:  # 실외 장소
-                final_score *= 0.3  # 70% 감점 (30%만 남음)
-            else:  # 실내 장소
-                final_score *= 1.5  # 50% 가중치 (150%)
-        
-        # Nature preference boost: if user likes nature, boost high-nature places
-        user_nature = user_vector[0]
-        place_nature = place_vector[0]
-        if user_nature > 0.7 and place_nature > 0.7:
-            # bonus factor up to 1.5
-            nature_bonus = 1.0 + (user_nature * place_nature) * 0.3
-            final_score *= nature_bonus
-        
-        # Landmark boost: important landmarks get extra weight
-        important_landmarks = ["비자림", "사려니숲길", "절물자연휴양림"]
-        if place_name in important_landmarks:
-            final_score *= 1.2  # 20% boost
-        
-        results.append((place_name, final_score))
-    
-    # 내림차순 정렬 (높은 점수 순)
-    results.sort(key=lambda x: x[1], reverse=True)
-    return results
-
-
-def optimize_route(
-    places_coords: Dict[str, Tuple[float, float]],
-    top_places: List[str]
-) -> Tuple[List[str], float]:
-    """
-    상위 장소의 방문 순서를 최적화 (단순 TSP)
-    
-    Args:
-        places_coords: 장소 이름과 좌표를 매핑한 딕셔너리
-        top_places: 상위 장소 이름 리스트
-    
-    Returns:
-        (최적 순서, 총 거리) 튜플
-    """
-    if len(top_places) < 2:
-        return top_places, 0.0
-    
-    best_route = None
-    best_distance = float('inf')
-    
-    for perm in permutations(top_places):
-        total_distance = 0
-        for i in range(len(perm) - 1):
-            coord1 = places_coords[perm[i]]
-            coord2 = places_coords[perm[i + 1]]
-            total_distance += calculate_distance(coord1, coord2)
-        
-        if total_distance < best_distance:
-            best_distance = total_distance
-            best_route = perm
-    
-    return list(best_route), best_distance
-
-
-async def get_weather(api_key: str, lat: float = 33.3642, lon: float = 126.5553) -> dict:
-    """
-    외부 기상 API(OpenWeatherMap)를 호출하여 날씨 정보 조회
-    
-    Args:
-        api_key: OpenWeatherMap API 키
-        lat: 위도 (기본값: 제주도 중심 좌표)
-        lon: 경도 (기본값: 제주도 중심 좌표)
-    
-    Returns:
-        날씨 정보 딕셔너리 (is_rainy, description, temperature 등)
-    
-    Note:
-        실제 API 호출을 위해서는 requests 또는 httpx 라이브러리가 필요합니다.
-        현재는 스켈레톤 코드만 제공합니다.
-    """
-    # TODO: 실제 API 호출 구현
-    # import httpx
-    # 
-    # url = f"https://api.openweathermap.org/data/2.5/weather"
-    # params = {
-    #     "lat": lat,
-    #     "lon": lon,
-    #     "appid": api_key,
-    #     "units": "metric",
-    #     "lang": "kr"
-    # }
-    # 
-    # async with httpx.AsyncClient() as client:
-    #     response = await client.get(url, params=params)
-    #     response.raise_for_status()
-    #     data = response.json()
-    # 
-    #     weather_main = data.get("weather", [{}])[0].get("main", "")
-    #     weather_desc = data.get("weather", [{}])[0].get("description", "")
-    #     temperature = data.get("main", {}).get("temp", 0)
-    # 
-    #     # 비 오는 날 판별 (Rain, Drizzle, Thunderstorm)
-    #     is_rainy = weather_main.lower() in ["rain", "drizzle", "thunderstorm"]
-    # 
-    #     return {
-    #         "is_rainy": is_rainy,
-    #         "weather_main": weather_main,
-    #         "weather_description": weather_desc,
-    #         "temperature": temperature
-    #     }
-    
-    # 스켈레톤: 기본값 반환
-    return {
-        "is_rainy": False,
-        "weather_main": "Clear",
-        "weather_description": "맑음 (스켈레톤)",
-        "temperature": 20.0
-    }
-
+async def get_weather(lat=33.3642, lon=126.5553):
+    key=os.getenv("OPENWEATHER_API_KEY")
+    if not key: raise RuntimeError("OPENWEATHER_API_KEY is not configured")
+    import httpx
+    async with httpx.AsyncClient(timeout=8) as client:
+        response=await client.get("https://api.openweathermap.org/data/2.5/weather",params={"lat":lat,"lon":lon,"appid":key,"units":"metric","lang":"kr"}); response.raise_for_status()
+    data=response.json(); item=data.get("weather",[{}])[0]; main=item.get("main","")
+    return {"is_rainy":main.lower() in {"rain","drizzle","thunderstorm","snow"},"weather_description":item.get("description","정보 없음"),"temperature":data.get("main",{}).get("temp"),"source":"openweather"}
 
 class RecommendationService:
-    """여행 추천 서비스 클래스"""
-    
-    def __init__(self, repository: PlaceRepository):
-        self.repository = repository
-    
-    def get_recommendation(
-        self,
-        user_vector: List[float],
-        is_rainy: bool = False,
-        top_n: int = 3
-    ) -> dict:
-        """
-        여행 추천 결과 생성
-        
-        Args:
-            user_vector: 사용자 취향 벡터
-            is_rainy: 비 오는 날 여부
-            top_n: 추천할 장소 수
-        
-        Returns:
-            추천 결과 딕셔너리
-        """
-        # 모든 장소 데이터 조회
-        places = self.repository.get_all_places()
-        places_coords = self.repository.get_place_coordinates()
-        
-        # 장소 추천
-        recommendations = recommend_places(user_vector, places, is_rainy)
-        
-        # 상위 N개 선택
-        top_places = [place for place, _ in recommendations[:top_n]]
-        
-        # 경로 최적화
-        optimized_route, total_distance = optimize_route(places_coords, top_places)
-        
-        # 결과 구성
-        recommended_places = []
-        for place_name, score in recommendations[:top_n]:
-            place_data = places[place_name]
-            recommended_places.append({
-                "name": place_name,
-                "vector": place_data.vector,
-                "coordinates": list(place_data.coordinates),
-                "score": round(score, 4)
-            })
-        
-        return {
-            "recommended_places": recommended_places,
-            "optimized_route": optimized_route,
-            "total_distance": round(total_distance, 4),
-            "is_rainy": is_rainy,
-            "message": "비 오는 날 실내 추천입니다." if is_rainy else "맑은 날 야외 추천입니다."
-        }
+    def __init__(self, repository: PlaceRepository): self.repository=repository
+    def build_plan(self, ident,title,subtitle,reason,ranked,places,start,top_n,start_time,end_time):
+        names=[n for n,_ in ranked[:top_n]]; route,total=optimize_route(self.repository.get_place_coordinates(),names,start); scores=dict(ranked); cursor=sum(int(x)*v for x,v in zip(start_time.split(':'),(60,1))); limit=sum(int(x)*v for x,v in zip(end_time.split(':'),(60,1))); previous=start; items=[]
+        for name in route:
+            place=places[name]; travel=max(8,math.ceil(calculate_distance(previous,place.coordinates)/28*60)); stay=duration(place)
+            if cursor+travel+stay>limit and items: continue
+            cursor+=travel; arrival=clock(cursor); cursor+=stay; kind=place_type(place); query=quote_plus(f"{name} {place.address}")
+            items.append({"name":name,"vector":place.vector,"coordinates":list(place.coordinates),"score":round(scores[name],4),"category":place.category,"address":place.address,"overview":place.overview,"place_type":kind,"estimated_duration_minutes":stay,"arrival_time":arrival,"departure_time":clock(cursor),"travel_minutes_from_previous":travel,"map_search_url":f"https://map.kakao.com/?q={query}","booking_search_url":f"https://search.naver.com/search.naver?query={quote_plus(name+' 예약')}" if kind=="restaurant" else ""}); previous=place.coordinates
+        return {"id":ident,"title":title,"subtitle":subtitle,"reason":reason,"total_distance":round(total,2),"total_minutes":cursor-sum(int(x)*v for x,v in zip(start_time.split(':'),(60,1))),"places":items}
+    def get_recommendation(self,user_vector,is_rainy=False,top_n=5,interests=None,start_coordinates=None,start_time="09:00",end_time="19:00"):
+        places=self.repository.get_all_places(); start=start_coordinates or (33.4996,126.5312); ranked=recommend_places(user_vector,places,is_rainy,interests or []); weather=recommend_places(user_vector,places,True,interests or []); nearby=sorted(ranked,key=lambda x:calculate_distance(start,places[x[0]].coordinates)-5*x[1])
+        return {"plans":[self.build_plan("preference","A. 취향 최우선 코스","선호 활동 중심","선택한 관심사를 가장 많이 반영했습니다.",ranked,places,start,top_n,start_time,end_time),self.build_plan("weather","B. 날씨 안전 코스","실내·복합 장소 중심","비가 와도 즐길 수 있는 장소를 우선했습니다.",weather,places,start,top_n,start_time,end_time),self.build_plan("nearby","C. 이동 최소 코스","숙소 주변 중심","숙소 출발 이동 부담을 줄였습니다.",nearby,places,start,top_n,start_time,end_time)],"message":"이동 시간은 직선거리와 평균 속도에 따른 추정값입니다."}

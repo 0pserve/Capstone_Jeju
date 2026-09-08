@@ -1,12 +1,14 @@
 # 제주도 맞춤형 여행 추천 시스템 (Jeju Travel Recommendation)
 
-실시간 날씨와 사용자 설문을 기반으로 제주도 여행 장소를 추천하고 최적화된 경로를 제공하는 풀스택 웹 애플리케이션입니다.
+여행 날짜·시간, 관심사, 숙소 위치, 날씨 조건을 바탕으로 제주 여행안 A/B/C를 만들고 지도와 일정표를 제공하는 풀스택 웹 애플리케이션입니다.
 
 ## 🚀 주요 기능
 
 - **설문 기반 취향 분석**: 여행 스타일, 선호 장소, 활동량을 고려한 개인화 추천
 - **실시간 날씨 반영**: 기상청 API를 통한 실시간 날씨 데이터로 실내/실외 추천 조정
-- **경로 최적화**: TSP(Traveling Salesman Problem) 알고리즘으로 이동 경로 최소화
+- **여러 여행안 비교**: 취향 최우선, 날씨 안전, 이동 최소의 A/B/C 코스를 비교 후 선택
+- **일정표 편집**: 예상 체류·이동시간, 장소 순서 변경, 장소 제외, 지도·예약 검색 및 PDF 출력
+- **경로 정렬**: 숙소 출발지 기준 nearest-neighbor 방문 순서 정렬
 - **인터랙티브 지도**: Kakao Maps를 통한 장소 표시 및 경로 시각화
 - **백엔드 API**: FastAPI 기반 추천 알고리즘 서버
 
@@ -15,7 +17,7 @@
 ```
 프론트엔드 (React) ↔ 백엔드 (FastAPI) ↔ 데이터 (CSV)
        │                         │
-   Kakao Maps              기상청 API
+   Kakao Maps              OpenWeatherMap API
 ```
 
 ## 📁 프로젝트 구조
@@ -25,7 +27,7 @@ frontend/                 # React 프론트엔드
 ├── public/
 ├── src/
 │   ├── components/      # WeatherBar, PlaceCard
-│   ├── pages/          # SurveyPage, MapPage
+│   ├── pages/          # SurveyPage, PlansPage, MapPage
 │   └── App.js
 ├── package.json
 └── .env.example
@@ -44,9 +46,8 @@ backend/                  # FastAPI 백엔드
 ### 1. 백엔드 실행
 
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python -m pip install -r backend/requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 백엔드 서버가 `http://localhost:8000`에서 실행됩니다.
@@ -67,7 +68,6 @@ npm start
 
 ```env
 REACT_APP_KAKAO_MAP_KEY=your_kakao_map_key_here
-REACT_APP_WEATHER_KEY=your_weather_api_key_here
 ```
 
 ## 🔑 API 키 발급
@@ -77,10 +77,8 @@ REACT_APP_WEATHER_KEY=your_weather_api_key_here
 2. 애플리케이션 생성 → JavaScript 키 발급
 3. `.env` 파일의 `REACT_APP_KAKAO_MAP_KEY`에 입력
 
-### 기상청 날씨 API
-1. [기상청 날씨开放API](https://data.go.kr/) 가입
-2. 일반 인증키 발급
-3. `.env` 파일의 `REACT_APP_WEATHER_KEY`에 입력
+### OpenWeatherMap
+프로젝트 루트 `.env`에 `OPENWEATHER_API_KEY`를 설정합니다. 날씨 키는 서버에서만 사용됩니다.
 
 ## 📊 데이터
 
@@ -99,8 +97,8 @@ REACT_APP_WEATHER_KEY=your_weather_api_key_here
 ### 3. 날씨 가중치 적용
 비 오는 날(`is_rainy=True`) 경우 실외 장소 패널티 적용
 
-### 4. TSP 경로 최적화
-추천된 장소들 간의 하버사인 거리를 기반으로 최단 경로 계산
+### 4. 일정 및 경로
+하버사인 직선거리와 평균 시속 28km를 사용해 예상 이동시간을 계산합니다. 실제 도로 길찾기 API는 프로젝트 범위에서 제외했습니다.
 
 ## 🌐 API 엔드포인트
 
@@ -109,6 +107,7 @@ REACT_APP_WEATHER_KEY=your_weather_api_key_here
 | POST | `/recommend` | 설문 기반 장소 추천 |
 | GET | `/weather` | 제주도 실시간 날씨 |
 | GET | `/places` | 모든 장소 목록 |
+| GET | `/health` | 서버 상태 및 장소 수 |
 
 ## 🧪 테스트
 

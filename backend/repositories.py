@@ -9,10 +9,11 @@ from typing import Dict, List, Tuple, Optional
 
 class PlaceData:
     """장소 데이터 클래스"""
-    def __init__(self, name: str, vector: List[float], coordinates: Tuple[float, float]):
+    def __init__(self, name: str, vector: List[float], coordinates: Tuple[float, float], tag: str = "", category: str = "", address: str = "", overview: str = ""):
         self.name = name
         self.vector = vector  # [자연친화도, 실내여부, 활동성]
         self.coordinates = coordinates  # (위도, 경도)
+        self.tag, self.category, self.address, self.overview = tag, category, address, overview
 
 
 class PlaceRepository(ABC):
@@ -69,14 +70,17 @@ class InMemoryPlaceRepository(PlaceRepository):
                     try:
                         lon = float(row['mapx'])
                         lat = float(row['mapy'])
-                    except ValueError:
+                    except (ValueError, TypeError):
                         continue  # 좌표 변환 실패 시 건너뜀
+                    if not (32.8 <= lat <= 34.1 and 125.8 <= lon <= 127.2):
+                        continue
                     vector = tag_to_vector(tag)
                     coordinates = (lat, lon)  # (latitude, longitude)
                     self._places[title] = PlaceData(
                         name=title,
                         vector=vector,
-                        coordinates=coordinates
+                        coordinates=coordinates, tag=tag, category=row.get('cat1_name', ''),
+                        address=row.get('address', ''), overview=row.get('overview', '')
                     )
             print(f"[Repository] Loaded {len(self._places)} places from CSV")
         except FileNotFoundError:
